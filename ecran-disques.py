@@ -12,7 +12,7 @@
 #     python3 ecran-disques.py --demo 2 --png a.png -> enregistre une image de démo
 #     sudo python3 ecran-disques.py --demo 2        -> démo sur l'écran (1, 2, 3 ou 0)
 # =====================================================================
-import argparse, datetime, fcntl, json, math, mmap, os, signal, socket, struct, subprocess, sys, time
+import argparse, datetime, fcntl, glob, json, math, mmap, os, re, signal, socket, struct, subprocess, sys, time
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ICI = os.path.dirname(os.path.abspath(__file__))
@@ -701,6 +701,7 @@ class Ecran:
         except OSError:
             pass
         self.premier = True
+        self.vw, self.vh = self.zone_visible()
         self.tty = None
         try:
             self.tty = os.open(tty, os.O_RDWR)
@@ -708,9 +709,33 @@ class Ecran:
         except OSError:
             self.tty = None
 
+    def zone_visible(self):
+        """Résolution réellement affichée par l'écran branché (peut être plus petite que /dev/fb0)."""
+        meilleur = None
+        for c in sorted(glob.glob("/sys/class/drm/card*-*")):
+            try:
+                if open(c + "/status").read().strip() != "connected":
+                    continue
+                for ligne in open(c + "/modes"):
+                    m = re.match(r"(\d+)x(\d+)", ligne.strip())
+                    if not m:
+                        continue
+                    mw, mh = int(m.group(1)), int(m.group(2))
+                    if mw <= self.w and mh <= self.h and (meilleur is None or mw * mh > meilleur[0] * meilleur[1]):
+                        meilleur = (mw, mh)
+            except OSError:
+                continue
+        return meilleur or (self.w, self.h)
+
     def afficher(self, img):
         img = img.convert("RGB")
-        if img.size != (self.w, self.h):
+        if (self.vw, self.vh) != (self.w, self.h):
+            # l'écran n'affiche qu'une partie du framebuffer : on y loge toute l'image, proportions gardées
+            r = min(self.vw / img.width, self.vh / img.height)
+            petite = img.resize((max(1, int(img.width * r)), max(1, int(img.height * r))), Image.LANCZOS)
+            img = Image.new("RGB", (self.w, self.h), BG_TOP)
+            img.paste(petite, ((self.vw - petite.width) // 2, (self.vh - petite.height) // 2))
+        elif img.size != (self.w, self.h):
             img = img.resize((self.w, self.h), Image.BICUBIC)
         if self.bpp == 32:
             raw = img.tobytes("raw", self.ordre)
@@ -736,7 +761,7 @@ class Ecran:
             pass
         if self.premier:
             self.premier = False
-            print(f"Premier affichage envoyé : {self.w}x{self.h}, {self.bpp} bits, "
+            print(f"Premier affichage envoyé : écran {self.vw}x{self.vh}, framebuffer {self.w}x{self.h}, {self.bpp} bits, "
                   f"{'mmap' if self.mm is not None else 'write'}, ordre {self.ordre}", flush=True)
 
     def fermer(self):
