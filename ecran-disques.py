@@ -12,7 +12,7 @@
 #     python3 ecran-disques.py --demo 2 --png a.png -> enregistre une image de démo
 #     sudo python3 ecran-disques.py --demo 2        -> démo sur l'écran (1, 2, 3 ou 0)
 # =====================================================================
-import argparse, datetime, fcntl, json, math, os, signal, socket, struct, subprocess, sys, time
+import argparse, datetime, fcntl, json, math, mmap, os, signal, socket, struct, subprocess, sys, time
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ICI = os.path.dirname(os.path.abspath(__file__))
@@ -675,7 +675,7 @@ def rendre(disques, sysi, t):
 
 # ------------------------------------------------------------------ framebuffer
 class Ecran:
-    FBIOGET_VSCREENINFO, FBIOGET_FSCREENINFO = 0x4600, 0x4602
+    FBIOGET_VSCREENINFO, FBIOGET_FSCREENINFO, FBIOPAN_DISPLAY, FBIOBLANK = 0x4600, 0x4602, 0x4606, 0x4611
     KDSETMODE, KD_TEXT, KD_GRAPHICS = 0x4B3A, 0, 1
 
     def __init__(self, dev="/dev/fb0", tty="/dev/tty1"):
@@ -687,6 +687,20 @@ class Ecran:
         fix = fcntl.ioctl(self.f, self.FBIOGET_FSCREENINFO, bytes(80))
         self.stride = struct.unpack("I", fix[48:52])[0] or self.w * self.bpp // 8
         self.ordre = "BGRX" if rouge == 16 else "RGBX"
+        # infos pour forcer le rafraîchissement (pilotes Intel i915 : sinon l'image ne s'affiche pas)
+        v2 = bytearray(var)
+        v2[16:24] = bytes(8)                       # xoffset = yoffset = 0
+        self.var = bytes(v2)
+        self.mm = None
+        try:
+            self.mm = mmap.mmap(self.f.fileno(), self.stride * self.h, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE)
+        except (OSError, ValueError):
+            self.mm = None
+        try:
+            fcntl.ioctl(self.f, self.FBIOBLANK, 0)  # réveille l'écran s'il est en veille
+        except OSError:
+            pass
+        self.premier = True
         self.tty = None
         try:
             self.tty = os.open(tty, os.O_RDWR)
@@ -710,8 +724,20 @@ class Ecran:
             for yy in range(self.h):
                 buf[yy * self.stride: yy * self.stride + ligne] = raw[yy * ligne:(yy + 1) * ligne]
             raw = bytes(buf)
-        self.f.seek(0)
-        self.f.write(raw)
+        if self.mm is not None:
+            self.mm.seek(0)
+            self.mm.write(raw)
+        else:
+            self.f.seek(0)
+            self.f.write(raw)
+        try:
+            fcntl.ioctl(self.f, self.FBIOPAN_DISPLAY, self.var)   # force l'affichage de la nouvelle image
+        except OSError:
+            pass
+        if self.premier:
+            self.premier = False
+            print(f"Premier affichage envoyé : {self.w}x{self.h}, {self.bpp} bits, "
+                  f"{'mmap' if self.mm is not None else 'write'}, ordre {self.ordre}", flush=True)
 
     def fermer(self):
         if self.tty is not None:
