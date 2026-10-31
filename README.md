@@ -21,6 +21,7 @@
 | ✓ **Vérification** | Après la réécriture, 66 zones réparties sur tout le disque sont relues : le badge **✓ VÉRIFIÉ** n'apparaît que si tout est à zéro. |
 | 🏷️ **Identification** | **N° de série** de chaque disque et **vitesse du branchement**, avec alerte si un disque est sur un port lent (USB 2, SATA limité). |
 | ⚡ **Automatique** | Branche un disque : compte à rebours de 30 s à l'écran, puis effacement. Débranche pour annuler. |
+| 🔌 **Branchement à chaud** | Les disques SATA branchés ou débranchés pendant que le ZimaBoard tourne sont détectés sans redémarrer. |
 | 🛡️ **Protections** | Ne touche jamais la mémoire interne (eMMC), le disque système ni le disque qui contient Docker / les applis CasaOS. |
 | 🖥️ **Écran HDMI** | S'affiche tout seul au démarrage, sans clavier ni souris. |
 | 🌐 **Vue web** | La même image dans le navigateur de ton ordinateur : `http://<zimaboard>:8099`. |

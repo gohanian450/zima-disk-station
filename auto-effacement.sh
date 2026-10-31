@@ -68,10 +68,62 @@ rebours_puis_effacer() {
   fi
 }
 
+# ---------------------------------------------------------------- branchement SATA à chaud
+# Les ports SATA du ZimaBoard ne signalent pas toujours un disque branché en marche.
+# On coupe l'économie d'énergie du lien (qui bloque souvent la détection), on sonde
+# régulièrement les ports vides, et on retire un disque débranché resté en mémoire.
+SYS=${ZDS_SYS:-/sys}
+SONDE_SATA=${SONDE_SATA:-6}      # secondes entre deux sondages des ports SATA vides
+derniere_sonde=0
+
+effacement_en_cours() {          # vrai si un effacement tourne sur ce disque
+  local f="$STATUS_DIR/$1" pct msg
+  [[ -f "$f" ]] || return 1
+  IFS='|' read -r pct msg _ < "$f"
+  [[ "$pct" =~ ^[0-9]+$ ]] || return 1
+  (( pct > 0 && pct < 100 )) && [[ "$msg" != Effacement\ automatique\ dans* ]]
+}
+
+sata_a_chaud() {
+  local h hd port spd blk nom maintenant
+  maintenant=$(date +%s)
+  (( maintenant - derniere_sonde >= SONDE_SATA )) || return 0
+  derniere_sonde=$maintenant
+  for h in "$SYS"/class/scsi_host/host*; do
+    [[ -e "$h" ]] || continue
+    hd=$(readlink -f "$h")
+    [[ "$hd" =~ /ata([0-9]+)/ ]] || continue          # seulement les ports SATA
+    port=${BASH_REMATCH[1]}
+    if [[ -w "$h/link_power_management_policy" ]] \
+       && [[ "$(cat "$h/link_power_management_policy" 2>/dev/null)" != "max_performance" ]]; then
+      echo max_performance > "$h/link_power_management_policy" 2>/dev/null || true
+    fi
+    hd=$(dirname "$(dirname "$hd")")                  # …/ataN/hostM (scsi_host/hostM -> hostM)
+    blk=$(ls -d "$hd"/target*/*/block/* 2>/dev/null | head -n1)
+    if [[ -z "$blk" ]]; then
+      # port vide : on demande au contrôleur s'il y a un nouveau disque
+      echo "- - -" > "$h/scan" 2>/dev/null || true
+      continue
+    fi
+    nom=${blk##*/}
+    effacement_en_cours "$nom" && continue          # ne jamais toucher un disque en cours d'effacement
+    lsblk -nro MOUNTPOINT "/dev/$nom" 2>/dev/null | grep -q . && continue   # ni un disque monté (Docker…)
+    spd=$(cat "$SYS/class/ata_link/link$port/sata_spd" 2>/dev/null)
+    if [[ "$spd" == "<unknown>" ]] \
+       || ! timeout 20 dd if="/dev/$nom" of=/dev/null bs=4096 count=1 iflag=direct status=none 2>/dev/null; then
+      # le disque ne répond plus : il a été débranché, on le retire proprement
+      echo "Disque SATA /dev/$nom débranché : retiré."
+      echo 1 > "$(dirname "$(dirname "$blk")")/delete" 2>/dev/null || true
+      rm -f "$STATUS_DIR/$nom"
+    fi
+  done
+}
+
 declare -A VU PID
 echo "Service d'effacement automatique démarré."
 while true; do
   lire_conf
+  sata_a_chaud
 
   # disques débranchés ou remplacés : on les oublie
   for d in "${!VU[@]}"; do
