@@ -29,8 +29,6 @@ DRY_RUN=0
 est_systeme() {
   local d="$1"
   [[ "$d" == /dev/mmcblk* ]] && return 0
-  # disque qui contient les données Docker (applis CasaOS), même si Docker est arrêté
-  for mp in $(lsblk -nro MOUNTPOINT "$d"); do [[ -d "$mp/docker-data" || -d "$mp/docker" ]] && return 0; done
   lsblk -nro MOUNTPOINT "$d" 2>/dev/null | grep -qE '^(/|/boot.*|/usr|/var|/DATA)$' && return 0
   return 1
 }
@@ -48,16 +46,33 @@ if [[ -n "$DOCKER_DIR" ]]; then
   [[ -n "$pk" ]] && DISQUE_DOCKER="/dev/$pk"
 fi
 
+est_docker() {  # disque qui contient les données Docker (applis CasaOS), même si Docker est arrêté
+  local d="$1" mp
+  [[ -n "$DISQUE_DOCKER" && "$d" == "$DISQUE_DOCKER" ]] && return 0
+  for mp in $(lsblk -nro MOUNTPOINT "$d" 2>/dev/null); do
+    [[ -d "$mp/docker-data" || -d "$mp/docker" ]] && return 0
+  done
+  return 1
+}
+
 # --- Disques cibles ------------------------------------------------------
 CIBLES=()
 while read -r nom type tran; do
   [[ "$type" == "disk" ]] || continue
   [[ "${tran:-}" =~ ^(sata|usb|nvme)$ ]] || continue
   if est_systeme "$nom"; then echo "🛡️  Protégé (système) : $nom"; continue; fi
-  if [[ "$nom" == "$DISQUE_DOCKER" && "${FORCER:-0}" != "1" ]]; then
-    echo "🛡️  Protégé : $nom contient Docker et tes applis ($DOCKER_DIR)"
-    echo "    -> pour l'effacer quand même : sudo FORCER=1 $0"
-    continue
+  if est_docker "$nom"; then
+    if [[ "${FORCER:-0}" != "1" ]]; then
+      echo "🛡️  Protégé : $nom contient Docker et tes applis CasaOS"
+      echo "    -> pour l'effacer quand même : arrête Docker, puis sudo FORCER=1 $0"
+      continue
+    fi
+    if systemctl is-active --quiet docker.service 2>/dev/null || pgrep -x dockerd >/dev/null 2>&1; then
+      echo "⛔ $nom contient Docker et Docker tourne encore : effacement refusé."
+      echo "    -> arrête-le d'abord : sudo systemctl stop docker.socket docker containerd"
+      continue
+    fi
+    echo "⚠️  $nom contient les données Docker : il SERA effacé (FORCER=1)."
   fi
   CIBLES+=("$nom")
 done < <(lsblk -dnpo NAME,TYPE,TRAN)
