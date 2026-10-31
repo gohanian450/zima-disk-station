@@ -20,7 +20,7 @@ STATUS_DIR=/run/effacement
 ETIQUETTE="ZDS-EFFACE"
 
 lire_conf() {
-  AUTO=0; DELAI=30; MODE=rapide; FS=ext4
+  AUTO=0; DELAI=30; MODE=complet; FS=ext4
   # shellcheck disable=SC1090
   [[ -f "$CONF" ]] && . "$CONF"
   [[ "$DELAI" =~ ^[0-9]+$ ]] || DELAI=30
@@ -29,7 +29,7 @@ lire_conf() {
 
 regler() {
   [[ $EUID -eq 0 ]] || { echo "❌ Lance avec sudo."; exit 1; }
-  [[ -f "$CONF" ]] || printf 'AUTO=0\nDELAI=30\nMODE=rapide\nFS=ext4\n' > "$CONF"
+  [[ -f "$CONF" ]] || printf 'AUTO=0\nDELAI=30\nMODE=complet\nFS=ext4\n' > "$CONF"
   if grep -q '^AUTO=' "$CONF"; then sed -i "s/^AUTO=.*/AUTO=$1/" "$CONF"; else echo "AUTO=$1" >> "$CONF"; fi
 }
 

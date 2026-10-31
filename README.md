@@ -89,8 +89,8 @@ Réglages (délai, mode, système de fichiers) : `/etc/zima-disk-station.conf`.
 | Commande | Effet |
 |---|---|
 | `sudo /opt/disques/effacer-disques.sh --liste` | Montre ce qui **serait** effacé — rien n'est touché |
-| `sudo /opt/disques/effacer-disques.sh` | Effacement rapide (TRIM) + formatage **ext4** |
-| `sudo MODE=complet /opt/disques/effacer-disques.sh` | Réécrit tout le disque avec des zéros — lent, % réel, irrécupérable |
+| `sudo /opt/disques/effacer-disques.sh` | **Réécriture complète** : chaque bloc mis à zéro, puis formatage **ext4** — % réel, irrécupérable |
+| `sudo MODE=rapide /opt/disques/effacer-disques.sh` | Effacement rapide (TRIM, quelques secondes) |
 | `sudo FS=exfat /opt/disques/effacer-disques.sh` | Formate en **exFAT** (lisible Windows / Mac) |
 
 Le script demande de taper `EFFACER` avant de commencer.

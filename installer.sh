@@ -68,8 +68,8 @@ if [[ ! -f "$CONF" ]]; then
 AUTO=1
 # secondes de compte à rebours avant l'effacement automatique (minimum 10)
 DELAI=30
-# rapide = TRIM (secondes) · complet = réécriture de tout le disque (long)
-MODE=rapide
+# complet = chaque bloc du disque réécrit avec des zéros (long) · rapide = TRIM (secondes)
+MODE=complet
 # ext4 · exfat (Windows / Mac) · ntfs
 FS=ext4
 REGLAGES
@@ -173,5 +173,5 @@ echo "   Activer / désactiver ....... sudo $DEST/auto-effacement.sh --activer  
 echo
 echo "   Effacer les disques ........ sudo $DEST/effacer-disques.sh"
 echo "   Vérifier sans rien effacer . sudo $DEST/effacer-disques.sh --liste"
-echo "   Effacement complet (lent) .. sudo MODE=complet $DEST/effacer-disques.sh"
+echo "   Effacement rapide (TRIM) .. sudo MODE=rapide $DEST/effacer-disques.sh"
 echo "   Désinstaller ............... sudo ./installer.sh --desinstaller"

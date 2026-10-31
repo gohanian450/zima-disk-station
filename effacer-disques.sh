@@ -9,7 +9,8 @@
 #  Utilisation :
 #    sudo ./effacer-disques.sh --liste          -> montre ce qui serait effacé (rien n'est touché)
 #    sudo ./effacer-disques.sh                  -> efface tous les disques autorisés (demande EFFACER)
-#    sudo MODE=complet ./effacer-disques.sh     -> réécrit tout le disque avec des zéros (long, % réel)
+#                                                  par défaut : réécriture complète, chaque bloc mis à zéro
+#    sudo MODE=rapide ./effacer-disques.sh      -> effacement rapide (TRIM, quelques secondes)
 #    sudo FS=exfat ./effacer-disques.sh         -> formate en exFAT (Windows/Mac) — aussi : ntfs
 #
 #  Utilisé par la station automatique :
@@ -19,8 +20,15 @@
 # =====================================================================
 set -uo pipefail
 
-FS="${FS:-ext4}"
-MODE="${MODE:-rapide}"
+# réglages par défaut : /etc/zima-disk-station.conf (sinon : réécriture complète, ext4)
+CONF=/etc/zima-disk-station.conf
+CONF_MODE=""; CONF_FS=""
+if [[ -f "$CONF" ]]; then
+  CONF_MODE=$(sed -n 's/^MODE=//p' "$CONF" | tail -n1 | tr -d ' "')
+  CONF_FS=$(sed -n 's/^FS=//p' "$CONF" | tail -n1 | tr -d ' "')
+fi
+FS="${FS:-${CONF_FS:-ext4}}"
+MODE="${MODE:-${CONF_MODE:-complet}}"
 STATUS_DIR=/run/effacement
 ETIQUETTE="ZDS-EFFACE"        # nom donné aux disques effacés (permet de les reconnaître)
 ACTION="effacer"; CIBLE_AUTO=""
@@ -165,6 +173,8 @@ travail() {
       fi
     done
     wait "$pid" 2>/dev/null || true      # dd finit toujours par « disque plein » : normal
+    etat 90 "Réécriture terminée · nettoyage TRIM" "$(( taille * 10 / 100 ))"
+    blkdiscard "$d" 2>/dev/null || true  # SSD : libère les cellules (sans effet sur un HDD)
   else
     etat 30 "Effacement TRIM (SSD)" "$(( taille * 70 / 100 ))"
     if ! blkdiscard "$d" 2>/dev/null; then
