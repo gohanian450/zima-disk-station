@@ -21,6 +21,7 @@
 | ⚡ **Automatique** | Branche un disque : compte à rebours de 30 s à l'écran, puis effacement. Débranche pour annuler. |
 | 🛡️ **Protections** | Ne touche jamais la mémoire interne (eMMC), le disque système ni le disque qui contient Docker / les applis CasaOS. |
 | 🖥️ **Écran HDMI** | S'affiche tout seul au démarrage, sans clavier ni souris. |
+| 🌐 **Vue web** | La même image dans le navigateur de ton ordinateur : `http://<zimaboard>:8099`. |
 
 <p align="center">
   <img src="apercus/apercu-1-sante.png" alt="Santé des disques" width="440">
@@ -53,6 +54,11 @@ sudo /DATA/zima-disk-station/mettre-a-jour.sh
 ```
 
 Récupère la dernière version sur GitHub, redémarre l'écran et affiche une vérification ✅ / ❌.
+
+## 🌐 Voir l'écran depuis un ordinateur ou un téléphone
+
+Ouvre **`http://<adresse-du-zimaboard>:8099`** dans un navigateur du même réseau : c'est la même image que l'écran HDMI,
+mise à jour toutes les 2 secondes, avec un bouton plein écran. Fonctionne même sans écran branché au ZimaBoard.
 
 ## ✅ Vérifier que tout est en ordre
 

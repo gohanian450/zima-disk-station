@@ -12,7 +12,8 @@
 #     python3 ecran-disques.py --demo 2 --png a.png -> enregistre une image de démo
 #     sudo python3 ecran-disques.py --demo 2        -> démo sur l'écran (1, 2, 3 ou 0)
 # =====================================================================
-import argparse, datetime, fcntl, glob, json, math, mmap, os, re, signal, socket, struct, subprocess, sys, time
+import argparse, datetime, fcntl, glob, io, json, math, mmap, os, re, threading, signal, socket, struct, subprocess, sys, time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ICI = os.path.dirname(os.path.abspath(__file__))
@@ -826,6 +827,91 @@ class Ecran:
                 pass
 
 # ------------------------------------------------------------------ programme
+# ------------------------------------------------------------------ vue web (écran visible depuis un ordinateur)
+PORT_WEB = int(os.environ.get("ZDS_PORT", "8099"))
+_vue = {"img": None, "id": 0, "jpg": None, "jpg_id": -1, "quand": 0.0}
+_verrou = threading.Lock()
+
+PAGE = """<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zima Disk Station</title>
+<style>
+  html,body{margin:0;height:100%;background:#080b16;color:#9aa3c0;font:14px system-ui,sans-serif}
+  body{display:flex;flex-direction:column}
+  #ecran{flex:1;min-height:0;width:100%;object-fit:contain;display:block}
+  footer{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;gap:12px}
+  .pt{display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:6px}
+  .hors .pt{background:#ef4444}
+  button{background:#1a2140;color:#e9edf8;border:1px solid #2a3356;border-radius:8px;padding:6px 12px;cursor:pointer}
+</style></head>
+<body>
+<img id="ecran" src="/ecran.jpg" alt="Écran de la Zima Disk Station">
+<footer id="pied"><span><span class="pt"></span><span id="etat">En direct</span></span>
+<button onclick="document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen()">Plein écran</button></footer>
+<script>
+  const img = document.getElementById('ecran'), etat = document.getElementById('etat'), pied = document.getElementById('pied');
+  function suivante(){ const n = new Image(); n.onload = () => { img.src = n.src; etat.textContent = 'En direct'; pied.className=''; setTimeout(suivante, 2000); };
+    n.onerror = () => { etat.textContent = 'Connexion perdue · nouvelle tentative…'; pied.className='hors'; setTimeout(suivante, 4000); };
+    n.src = '/ecran.jpg?t=' + Date.now(); }
+  setTimeout(suivante, 2000);
+</script></body></html>"""
+
+
+def publier(img):
+    with _verrou:
+        _vue["img"] = img
+        _vue["id"] += 1
+        _vue["quand"] = time.time()
+
+
+def image_jpeg():
+    with _verrou:
+        if _vue["img"] is None:
+            return None
+        if _vue["jpg_id"] != _vue["id"]:
+            tampon = io.BytesIO()
+            _vue["img"].convert("RGB").save(tampon, "JPEG", quality=85)
+            _vue["jpg"], _vue["jpg_id"] = tampon.getvalue(), _vue["id"]
+        return _vue["jpg"]
+
+
+class VueWeb(BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+    def envoyer(self, code, type_, corps):
+        self.send_response(code)
+        self.send_header("Content-Type", type_)
+        self.send_header("Content-Length", str(len(corps)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(corps)
+
+    def do_GET(self):
+        chemin = self.path.split("?")[0]
+        if chemin in ("/", "/index.html"):
+            self.envoyer(200, "text/html; charset=utf-8", PAGE.encode())
+        elif chemin == "/ecran.jpg":
+            jpg = image_jpeg()
+            if jpg is None:
+                self.envoyer(503, "text/plain; charset=utf-8", "Écran en préparation".encode())
+            else:
+                self.envoyer(200, "image/jpeg", jpg)
+        else:
+            self.envoyer(404, "text/plain; charset=utf-8", b"404")
+
+
+def demarrer_vue_web():
+    try:
+        serveur = ThreadingHTTPServer(("0.0.0.0", PORT_WEB), VueWeb)
+    except OSError as e:
+        print(f"Vue web indisponible (port {PORT_WEB}) : {e}", file=sys.stderr)
+        return
+    threading.Thread(target=serveur.serve_forever, daemon=True).start()
+    print(f"Vue web : http://<adresse-du-zimaboard>:{PORT_WEB}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description="ZIMA DISK STATION")
     ap.add_argument("--demo", type=int, choices=[0, 1, 2, 3, 4])
@@ -841,20 +927,26 @@ def main():
         print("Image enregistrée :", a.png)
         return
 
-    # attend que l'écran HDMI soit détecté (branché après le démarrage, ou lent à s'initialiser)
-    signale = False
-    while True:
+    if PORT_WEB > 0:
+        demarrer_vue_web()
+
+    # l'écran HDMI peut être absent ou détecté plus tard : la vue web marche quand même
+    etat = {"ecran": None, "signale": False, "essai": 0.0}
+
+    def ouvrir_ecran():
+        if etat["ecran"] is not None or time.time() - etat["essai"] < 5:
+            return
+        etat["essai"] = time.time()
         try:
-            ecran = Ecran(a.fb)
-            break
+            etat["ecran"] = Ecran(a.fb)
         except OSError as e:
-            if not signale:
-                print(f"En attente de l'écran {a.fb} ({e})…", file=sys.stderr)
-                signale = True
-            time.sleep(3)
+            if not etat["signale"]:
+                print(f"Pas d'écran HDMI sur {a.fb} pour l'instant ({e}) — la vue web reste disponible.", file=sys.stderr)
+                etat["signale"] = True
 
     def stop(*_):
-        ecran.fermer()
+        if etat["ecran"] is not None:
+            etat["ecran"].fermer()
         sys.exit(0)
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
@@ -862,7 +954,11 @@ def main():
     while True:
         t0 = time.time()
         try:
-            ecran.afficher(rendre(donnees(), infos_systeme(a.demo), t0, a.demo))
+            img = rendre(donnees(), infos_systeme(a.demo), t0, a.demo)
+            publier(img)
+            ouvrir_ecran()
+            if etat["ecran"] is not None:
+                etat["ecran"].afficher(img)
         except Exception as e:  # on ne plante jamais l'écran pour une erreur passagère
             print("Erreur d'affichage :", e, file=sys.stderr)
         time.sleep(max(0.3, REFRESH - (time.time() - t0)))

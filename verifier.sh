@@ -90,6 +90,14 @@ done
   && mauv "La console texte tty1 est encore active" "sudo ./installer.sh" \
   || bon "Console texte tty1 désactivée"
 
+# 4b. Vue web
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8099/', timeout=5).status == 200 else 1)" 2>/dev/null; then
+  bon "Vue web disponible : http://${IP:-adresse-du-zimaboard}:8099"
+else
+  mauv "Vue web injoignable sur le port 8099" "sudo systemctl restart disques-ecran"
+fi
+
 # 5. Matériel et outils
 [[ -e /dev/fb0 ]] && bon "Écran HDMI détecté (/dev/fb0)" \
                   || mauv "Aucun écran détecté" "branche l'écran HDMI, allume-le, puis sudo reboot"

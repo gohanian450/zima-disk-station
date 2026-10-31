@@ -169,6 +169,8 @@ systemctl enable --now disques-auto.service
 echo
 echo "✅ ZIMA DISK STATION est affiché sur l'écran HDMI ($MODE) et redémarrera tout seul."
 "$DEST/auto-effacement.sh" --etat | sed 's/^/   /'
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+echo "   🖥️  Voir l'écran depuis ton ordinateur : http://${IP:-adresse-du-zimaboard}:8099"
 echo "   Activer / désactiver ....... sudo $DEST/auto-effacement.sh --activer   (ou --desactiver)"
 echo
 echo "   Effacer les disques ........ sudo $DEST/effacer-disques.sh"
