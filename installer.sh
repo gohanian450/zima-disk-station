@@ -25,6 +25,14 @@ retirer() {
 
 if [[ "${1:-}" == "--desinstaller" ]]; then
   retirer
+  for f in /opt/disques/.bureau-desactive /DATA/disques/.bureau-desactive; do
+    [[ -f "$f" ]] || continue
+    while read -r dm; do
+      if [[ "$dm" == "graphical" ]]; then systemctl set-default graphical.target >/dev/null 2>&1 || true
+      else systemctl enable "$dm.service" >/dev/null 2>&1 || true; fi
+    done < "$f"
+    echo "ℹ️  Bureau graphique réactivé (actif au prochain démarrage)."
+  done
   rm -rf /opt/disques /DATA/disques
   systemctl enable --now getty@tty1.service 2>/dev/null || true
   echo "✅ ZIMA DISK STATION désinstallé."
@@ -35,7 +43,7 @@ ICI=$(cd "$(dirname "$0")" && pwd)
 for f in ecran-disques.py effacer-disques.sh polices; do
   [[ -e "$ICI/$f" ]] || { echo "❌ Il manque « $f » à côté de installer.sh."; exit 1; }
 done
-[[ -e /dev/fb0 ]] || echo "⚠️  /dev/fb0 introuvable : branche l'écran HDMI et redémarre si l'image n'apparaît pas."
+[[ -e /dev/fb0 ]] || echo "ℹ️  Aucun écran détecté pour l'instant : branche l'écran HDMI, il s'affichera au prochain démarrage."
 
 # ---------------------------------------------------------------- 1. copie des fichiers
 DEST=/opt/disques
@@ -62,8 +70,19 @@ if ! python_ok && command -v apt-get >/dev/null 2>&1; then
   apt-get install -y -qq python3 python3-pil smartmontools >/dev/null
 fi
 
-# l'écran ne doit plus être recouvert par la console texte
+# l'écran ne doit plus être recouvert par la console texte ni par un bureau graphique
 systemctl disable --now getty@tty1.service 2>/dev/null || true
+for dm in lightdm gdm gdm3 sddm lxdm xdm; do
+  if systemctl is-enabled "$dm.service" >/dev/null 2>&1; then
+    systemctl disable --now "$dm.service" >/dev/null 2>&1 || true
+    echo "$dm" >> "$DEST/.bureau-desactive"
+    echo "ℹ️  Bureau graphique ($dm) désactivé pour laisser l'écran à la station."
+  fi
+done
+if [[ "$(systemctl get-default 2>/dev/null)" == "graphical.target" ]]; then
+  systemctl set-default multi-user.target >/dev/null 2>&1 || true
+  echo "graphical" >> "$DEST/.bureau-desactive"
+fi
 setterm --blank 0 --powerdown 0 --cursor off </dev/tty1 >/dev/tty1 2>/dev/null || true
 
 if python_ok; then

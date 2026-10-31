@@ -736,10 +736,17 @@ def main():
         print("Image enregistrée :", a.png)
         return
 
-    try:
-        ecran = Ecran(a.fb)
-    except OSError as e:
-        sys.exit(f"Impossible d'ouvrir l'écran {a.fb} : {e}")
+    # attend que l'écran HDMI soit détecté (branché après le démarrage, ou lent à s'initialiser)
+    signale = False
+    while True:
+        try:
+            ecran = Ecran(a.fb)
+            break
+        except OSError as e:
+            if not signale:
+                print(f"En attente de l'écran {a.fb} ({e})…", file=sys.stderr)
+                signale = True
+            time.sleep(3)
 
     def stop(*_):
         ecran.fermer()
