@@ -5,18 +5,22 @@
 #     sudo ./installer.sh                 -> installe et affiche l'écran
 #     sudo ./installer.sh --desinstaller  -> retire tout
 #
-#   Garde tous les fichiers du dossier ensemble :
-#     installer.sh  ecran-disques.py  effacer-disques.sh  Dockerfile  polices/
+#   Installe deux services qui démarrent tout seuls :
+#     • disques-ecran : le tableau de bord sur l'écran HDMI
+#     • disques-auto  : l'effacement automatique des disques branchés
+#   Réglages : /etc/zima-disk-station.conf
 # =====================================================================
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "❌ Lance avec sudo."; exit 1; }
 
 SERVICE=/etc/systemd/system/disques-ecran.service
+SERVICE_AUTO=/etc/systemd/system/disques-auto.service
+CONF=/etc/zima-disk-station.conf
 CONTENEUR=zima-disk-station
 
 retirer() {
-  systemctl disable --now disques-ecran.service 2>/dev/null || true
-  rm -f "$SERVICE"
+  systemctl disable --now disques-ecran.service disques-auto.service 2>/dev/null || true
+  rm -f "$SERVICE" "$SERVICE_AUTO"
   systemctl daemon-reload 2>/dev/null || true
   if command -v docker >/dev/null 2>&1; then
     docker rm -f "$CONTENEUR" >/dev/null 2>&1 || true
@@ -34,13 +38,14 @@ if [[ "${1:-}" == "--desinstaller" ]]; then
     echo "ℹ️  Bureau graphique réactivé (actif au prochain démarrage)."
   done
   rm -rf /opt/disques /DATA/disques
+  rm -f "$CONF"
   systemctl enable --now getty@tty1.service 2>/dev/null || true
   echo "✅ ZIMA DISK STATION désinstallé."
   exit 0
 fi
 
 ICI=$(cd "$(dirname "$0")" && pwd)
-for f in ecran-disques.py effacer-disques.sh polices; do
+for f in ecran-disques.py effacer-disques.sh auto-effacement.sh polices; do
   [[ -e "$ICI/$f" ]] || { echo "❌ Il manque « $f » à côté de installer.sh."; exit 1; }
 done
 [[ -e /dev/fb0 ]] || echo "ℹ️  Aucun écran détecté pour l'instant : branche l'écran HDMI, il s'affichera au prochain démarrage."
@@ -52,9 +57,24 @@ if ! mkdir -p "$DEST" 2>/dev/null || ! touch "$DEST/.test" 2>/dev/null; then
   mkdir -p "$DEST"
 fi
 rm -f "$DEST/.test"
-cp -r "$ICI/ecran-disques.py" "$ICI/effacer-disques.sh" "$ICI/polices" "$DEST/"
+cp -r "$ICI/ecran-disques.py" "$ICI/effacer-disques.sh" "$ICI/auto-effacement.sh" "$ICI/polices" "$DEST/"
 [[ -f "$ICI/Dockerfile" ]] && cp "$ICI/Dockerfile" "$DEST/"
-chmod +x "$DEST/effacer-disques.sh" "$DEST/ecran-disques.py"
+chmod +x "$DEST/effacer-disques.sh" "$DEST/ecran-disques.py" "$DEST/auto-effacement.sh"
+if [[ ! -f "$CONF" ]]; then
+  cat > "$CONF" <<'REGLAGES'
+# ZIMA DISK STATION — réglages
+# AUTO=1 : tout disque SATA / USB branché est effacé après le compte à rebours
+# AUTO=0 : rien n'est effacé tant qu'on ne lance pas effacer-disques.sh
+AUTO=1
+# secondes de compte à rebours avant l'effacement automatique (minimum 10)
+DELAI=30
+# rapide = TRIM (secondes) · complet = réécriture de tout le disque (long)
+MODE=rapide
+# ext4 · exfat (Windows / Mac) · ntfs
+FS=ext4
+REGLAGES
+  echo "✅ Réglages créés : $CONF (effacement automatique ACTIVÉ)"
+fi
 mkdir -p /run/effacement
 echo "✅ Fichiers copiés dans $DEST"
 
@@ -117,6 +137,7 @@ elif command -v docker >/dev/null 2>&1; then
   docker run -d --name "$CONTENEUR" --restart unless-stopped \
     --privileged --network host --pid host \
     -v /dev:/dev -v /run/udev:/run/udev:ro -v /run/effacement:/run/effacement \
+    -v "$CONF":"$CONF":ro \
     -e ZDS_CHEMIN="$DEST" \
     "$CONTENEUR" >/dev/null
   MODE="conteneur Docker"
@@ -126,8 +147,29 @@ else
   exit 1
 fi
 
+# ---------------------------------------------------------------- 3. effacement automatique
+cat > "$SERVICE_AUTO" <<SERVICEAUTO
+[Unit]
+Description=ZIMA DISK STATION - effacement automatique des disques branches
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /run/effacement
+ExecStart=$DEST/auto-effacement.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICEAUTO
+systemctl daemon-reload
+systemctl enable --now disques-auto.service
+
 echo
 echo "✅ ZIMA DISK STATION est affiché sur l'écran HDMI ($MODE) et redémarrera tout seul."
+"$DEST/auto-effacement.sh" --etat | sed 's/^/   /'
+echo "   Activer / désactiver ....... sudo $DEST/auto-effacement.sh --activer   (ou --desactiver)"
 echo
 echo "   Effacer les disques ........ sudo $DEST/effacer-disques.sh"
 echo "   Vérifier sans rien effacer . sudo $DEST/effacer-disques.sh --liste"

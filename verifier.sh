@@ -35,7 +35,7 @@ for d in /opt/disques /DATA/disques; do [[ -f "$d/ecran-disques.py" ]] && DEST=$
 if [[ -z "$DEST" ]]; then
   mauv "Station pas encore installée" "sudo ./installer.sh"
 else
-  for f in ecran-disques.py effacer-disques.sh; do
+  for f in ecran-disques.py effacer-disques.sh auto-effacement.sh; do
     if cmp -s "$f" "$DEST/$f"; then bon "$f installé = version du dépôt"
     else mauv "$f installé est différent du dépôt" "sudo ./installer.sh"; fi
   done
@@ -64,6 +64,19 @@ fi
 if command -v docker >/dev/null 2>&1 && systemctl cat disques-ecran.service >/dev/null 2>&1 \
    && timeout 10 docker inspect zima-disk-station >/dev/null 2>&1; then
   mauv "Un ancien conteneur zima-disk-station tourne en plus du service" "sudo docker rm -f zima-disk-station"
+fi
+
+# 3b. Effacement automatique
+if systemctl cat disques-auto.service >/dev/null 2>&1; then
+  [[ "$(systemctl is-enabled disques-auto.service 2>/dev/null)" == "enabled" ]] && systemctl is-active --quiet disques-auto.service \
+    && bon "Service d'effacement automatique en marche" \
+    || mauv "Service d'effacement automatique arrêté" "sudo systemctl enable --now disques-auto"
+  if [[ -n "$DEST" ]]; then
+    etat=$("$DEST/auto-effacement.sh" --etat 2>/dev/null)
+    echo "  ${J}ℹ️${N}  $etat"
+  fi
+else
+  mauv "Service d'effacement automatique absent" "sudo ./installer.sh"
 fi
 
 # 4. Rien d'autre ne prend l'écran

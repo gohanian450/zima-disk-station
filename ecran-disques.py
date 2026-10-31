@@ -405,6 +405,13 @@ def donnees_demo(n):
         base[1].update(fs="ntfs", label="BACKUP")
         base[2].update(fs="exfat", label="PHOTOS", libre=1430000000000, total=2000000000000)
         return base[:3]
+    if n == 4:
+        base[0].update(has=True, pct=40, msg="Effacement automatique dans 18 s · débranche le disque pour annuler")
+        base[1].update(has=True, pct=54, msg="Effacement TRIM (SSD)", reste=230000000000)
+        base[2].update(has=True, pct=0, msg="PROTÉGÉ · contient Docker et les applis CasaOS",
+                       fs="ext4", label="", libre=1210000000000, total=2000000000000)
+        base[3].update(has=True, pct=100, msg="Déjà effacé · « ZDS-EFFACE »", reste=0, fs="ext4", label="ZDS-EFFACE")
+        return base
     if n == 2:
         base[0].update(has=True, pct=62, msg="Écriture de zéros · 412 Mo/s · 15 min restantes", reste=395000000000)
         base[1].update(has=True, pct=87, msg="Écriture de zéros · 395 Mo/s · 3 min restantes", reste=67000000000)
@@ -417,10 +424,34 @@ def donnees_demo(n):
                    msg="Écriture de zéros · 118 Mo/s · 2h41 restantes", reste=1100000000000)
     return base[:3]
 
+# ------------------------------------------------------------------ réglage du mode automatique
+MODE_AUTO = {}
+
+def lire_mode_auto(demo):
+    MODE_AUTO.clear()
+    if demo is not None:
+        MODE_AUTO.update(on=demo == 4, delai=30)
+        return
+    try:
+        conf = dict(l.strip().split("=", 1) for l in open("/etc/zima-disk-station.conf") if "=" in l and not l.startswith("#"))
+        MODE_AUTO.update(on=conf.get("AUTO", "0").strip() == "1", delai=int(conf.get("DELAI", "30").strip() or 30))
+    except (OSError, ValueError):
+        pass
+
 # ------------------------------------------------------------------ états
+def est_rebours(d):
+    return d["has"] and d["msg"].startswith("Effacement automatique dans")
+
+def est_protege(d):
+    return d["has"] and d["msg"].startswith("PROTÉGÉ")
+
 def etat_disque(d):
     if d["has"] and d["msg"].startswith("ERREUR"):
         return "erreur"
+    if est_protege(d):
+        return "danger" if d["etat"] == "DANGER" else "protege"
+    if est_rebours(d):
+        return "rebours"
     if d["etat"] == "DANGER":
         return "danger"
     if d["has"] and d["pct"] >= 100:
@@ -435,6 +466,8 @@ STYLE = {  # couleur, texte du badge, bordure, halo
     "fini":   (GREEN, "TERMINÉ",  (30, 120, 70), GREEN),
     "danger": (RED,   "DANGER",   (150, 45, 55), RED),
     "erreur": (RED,   "ERREUR",   (150, 45, 55), RED),
+    "rebours": (ORANGE, "AUTO",    (160, 90, 30), ORANGE),
+    "protege": (SLATE, "PROTÉGÉ",  CARD_LINE, None),
 }
 
 # ------------------------------------------------------------------ carte disque
@@ -523,7 +556,22 @@ def dessiner_carte(img, x, y, w, h, d, s):
     ty = y + int(274 * s)
     by = ty + int(50 * s)
     morceaux = d["msg"].split(" · ")
-    if st == "cours" or (st in ("danger", "erreur") and d["has"] and d["pct"] < 100 and not d["msg"].startswith("ERREUR")):
+    if est_rebours(d):
+        m = re.search(r"dans (\d+) s", d["msg"])
+        sec = m.group(1) if m else "…"
+        dr.text((X1, ty + 16 * s), f"{sec} s", font=F("dbold", 34 * s), fill=ORANGE, anchor="rm")
+        dr.text((X0, ty), "EFFACEMENT AUTOMATIQUE IMMINENT", font=F("bold", 13 * s), fill=ORANGE, anchor="la")
+        dr.text((X0, ty + 18 * s), "Débranche le disque pour annuler", font=F("med", 16 * s), fill=TXT2, anchor="la")
+        img.alpha_composite(barre(X1 - X0, int(12 * s), d["pct"] / 100, ORANGE, YELLOW), (X0, by))
+        return
+    if est_protege(d):
+        raison = morceaux[1] if len(morceaux) > 1 else "jamais effacé automatiquement"
+        dr.text((X0, ty), "PROTÉGÉ · JAMAIS EFFACÉ AUTOMATIQUEMENT", font=F("bold", 13 * s), fill=TXT2, anchor="la")
+        dr.text((X0, ty + 18 * s), tronquer(raison[:1].upper() + raison[1:], F("med", 16 * s), X1 - X0),
+                font=F("med", 16 * s), fill=TXT3, anchor="la")
+        img.alpha_composite(barre(X1 - X0, int(12 * s), 0, SLATE, SLATE), (X0, by))
+        return
+    if st == "cours" or (st in ("danger", "erreur") and d["has"] and d["pct"] < 100 and not d["msg"].startswith(("ERREUR", "PROTÉGÉ"))):
         etape = morceaux[0]
         details = "  ·  ".join(morceaux[1:])
         if d.get("reste"):
@@ -537,7 +585,8 @@ def dessiner_carte(img, x, y, w, h, d, s):
         img.alpha_composite(barre(X1 - X0, int(12 * s), d["pct"] / 100, CYAN, VIOLET), (X0, by))
     elif st == "fini" or (d["has"] and d["pct"] >= 100):
         dr.text((X1, ty + 16 * s), "100 %", font=F("dbold", 34 * s), fill=GREEN, anchor="rm")
-        dr.text((X0, ty), "EFFACÉ ET FORMATÉ", font=F("bold", 13 * s), fill=GREEN, anchor="la")
+        dr.text((X0, ty), "DÉJÀ EFFACÉ PAR LA STATION" if d["msg"].startswith("Déjà") else "EFFACÉ ET FORMATÉ",
+                font=F("bold", 13 * s), fill=GREEN, anchor="la")
         fin = (morceaux[1] if len(morceaux) > 1 else "") + "  ·  prêt à débrancher"
         dr.text((X0, ty + 18 * s), fin.strip(" ·"), font=F("med", 16 * s), fill=TXT2, anchor="la")
         img.alpha_composite(barre(X1 - X0, int(12 * s), 1.0, GREEN, LIME), (X0, by))
@@ -547,7 +596,8 @@ def dessiner_carte(img, x, y, w, h, d, s):
         img.alpha_composite(barre(X1 - X0, int(12 * s), d["pct"] / 100, RED, ORANGE), (X0, by))
     else:
         dr.text((X0, ty), "EFFACEMENT", font=F("bold", 13 * s), fill=TXT3, anchor="la")
-        dr.text((X0, ty + 18 * s), "En attente  ·  prêt à être effacé", font=F("med", 16 * s), fill=TXT2, anchor="la")
+        attente = "Effacement automatique en préparation…" if MODE_AUTO.get("on") else "En attente  ·  lance effacer-disques.sh"
+        dr.text((X0, ty + 18 * s), attente, font=F("med", 16 * s), fill=TXT2, anchor="la")
         img.alpha_composite(barre(X1 - X0, int(12 * s), 0, CYAN, VIOLET), (X0, by))
 
 def dessiner_vide(img, x, y, w, h, s):
@@ -582,7 +632,8 @@ def tuile(img, x, y, w, h, label, valeur, couleur):
     dr.text((x + 44, y + 24), label, font=F("semi", 14), fill=TXT3, anchor="la")
     dr.text((x + 42, y + h - 20), valeur, font=F("black", 46), fill=TXT if valeur != "0" else TXT3, anchor="ls")
 
-def rendre(disques, sysi, t):
+def rendre(disques, sysi, t, demo=None):
+    lire_mode_auto(demo)
     img = fond().copy()
     dr = ImageDraw.Draw(img, "RGBA")
     M = 56
@@ -596,12 +647,15 @@ def rendre(disques, sysi, t):
     date = f"{JOURS[now.weekday()]} {now.day} {MOIS[now.month - 1]}"
     dr.text((W - M - 160, 64), date.capitalize(), font=F("med", 19), fill=TXT2, anchor="rm")
     pul = 0.55 + 0.45 * math.sin(t * 3)
-    puce(img, W - M - 160, 86, f"EN DIRECT  ·  {sysi['ip'] or 'hors ligne'}", F("semi", 13), TXT2,
+    lw = puce(img, W - M - 160, 86, f"EN DIRECT  ·  {sysi['ip'] or 'hors ligne'}", F("semi", 13), TXT2,
          (255, 255, 255, 12), h=28, point=mix(BG_BOT, GREEN, pul), droite=True)
+    if MODE_AUTO.get("on"):
+        puce(img, W - M - 160 - lw - 10, 86, f"AUTO  ·  {MODE_AUTO.get('delai', 30)} s", F("bold", 13), ORANGE,
+             ORANGE + (34,), h=28, point=mix(BG_BOT, ORANGE, pul), droite=True)
 
     # --- tuiles de résumé
     etats = [etat_disque(d) for d in disques]
-    actifs = [d for d in disques if d["has"] and not d["msg"].startswith("ERREUR")]
+    actifs = [d for d in disques if d["has"] and not d["msg"].startswith(("ERREUR", "PROTÉGÉ", "Effacement automatique dans"))]
     encours = sum(1 for d in actifs if d["pct"] < 100)
     finis = sum(1 for d in actifs if d["pct"] >= 100)
     alertes = sum(1 for e in etats if e in ("danger", "erreur"))
@@ -774,7 +828,7 @@ class Ecran:
 # ------------------------------------------------------------------ programme
 def main():
     ap = argparse.ArgumentParser(description="ZIMA DISK STATION")
-    ap.add_argument("--demo", type=int, choices=[0, 1, 2, 3])
+    ap.add_argument("--demo", type=int, choices=[0, 1, 2, 3, 4])
     ap.add_argument("--png", help="enregistre une seule image au lieu d'afficher")
     ap.add_argument("--fb", default="/dev/fb0")
     a = ap.parse_args()
@@ -783,7 +837,7 @@ def main():
         return donnees_demo(a.demo) if a.demo is not None else collecter()
 
     if a.png:
-        rendre(donnees(), infos_systeme(a.demo), time.time()).convert("RGB").save(a.png)
+        rendre(donnees(), infos_systeme(a.demo), time.time(), a.demo).convert("RGB").save(a.png)
         print("Image enregistrée :", a.png)
         return
 
@@ -808,7 +862,7 @@ def main():
     while True:
         t0 = time.time()
         try:
-            ecran.afficher(rendre(donnees(), infos_systeme(a.demo), t0))
+            ecran.afficher(rendre(donnees(), infos_systeme(a.demo), t0, a.demo))
         except Exception as e:  # on ne plante jamais l'écran pour une erreur passagère
             print("Erreur d'affichage :", e, file=sys.stderr)
         time.sleep(max(0.3, REFRESH - (time.time() - t0)))

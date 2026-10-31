@@ -18,6 +18,7 @@
 | 🩺 **Santé des disques** | Anneau de vie (vert → jaune → rouge), état SMART, température, heures d'utilisation. Pour les disques durs, nombre de secteurs défectueux. |
 | 💾 **Stockage** | Système de fichiers, nom du volume, espace libre / utilisé. |
 | 🧹 **Effacement** | Tous les disques SATA, USB et NVMe en même temps, avec %, vitesse, temps restant et Go à effacer. |
+| ⚡ **Automatique** | Branche un disque : compte à rebours de 30 s à l'écran, puis effacement. Débranche pour annuler. |
 | 🛡️ **Protections** | Ne touche jamais la mémoire interne (eMMC), le disque système ni le disque qui contient Docker / les applis CasaOS. |
 | 🖥️ **Écran HDMI** | S'affiche tout seul au démarrage, sans clavier ni souris. |
 
@@ -63,7 +64,27 @@ Contrôle la version, les fichiers installés, le démarrage automatique, l'écr
 
 ---
 
-## 🧹 Effacer les disques
+## ⚡ Effacement automatique (activé par défaut)
+
+Branche un disque : un **compte à rebours de 30 s** s'affiche en orange sur sa carte, puis il est effacé et formaté tout seul.
+**Débranche-le pendant le compte à rebours pour annuler.**
+
+<p align="center">
+  <img src="apercus/apercu-4-automatique.png" alt="Station automatique" width="900">
+</p>
+
+Jamais effacés automatiquement : la mémoire interne, le disque système, le disque qui contient Docker (applis CasaOS)
+— affichés « PROTÉGÉ » — et les disques déjà effacés par la station (étiquette `ZDS-EFFACE`).
+
+| Commande | Effet |
+|---|---|
+| `sudo /opt/disques/auto-effacement.sh --desactiver` | Coupe l'effacement automatique (les disques restent « En attente ») |
+| `sudo /opt/disques/auto-effacement.sh --activer` | Le réactive |
+| `sudo /opt/disques/auto-effacement.sh --etat` | Affiche le réglage actuel |
+
+Réglages (délai, mode, système de fichiers) : `/etc/zima-disk-station.conf`.
+
+## 🧹 Effacer les disques à la main
 
 | Commande | Effet |
 |---|---|
@@ -83,7 +104,7 @@ Le script demande de taper `EFFACER` avant de commencer.
 
 ```bash
 sudo systemctl stop disques-ecran
-sudo python3 /opt/disques/ecran-disques.py --demo 2     # 1 = santé · 2 = effacement · 3 = terminé + alerte · 0 = vide
+sudo python3 /opt/disques/ecran-disques.py --demo 2     # 1 = santé · 2 = effacement · 3 = terminé + alerte · 4 = automatique · 0 = vide
 sudo systemctl start disques-ecran
 ```
 
@@ -105,6 +126,7 @@ ecran-disques.py     tableau de bord graphique dessiné sur /dev/fb0
 effacer-disques.sh   effacement + formatage, avec progression publiée dans /run/effacement
 mettre-a-jour.sh     git pull + réinstallation + vérification
 verifier.sh          liste de contrôle ✅ / ❌
+auto-effacement.sh   service d'effacement automatique (compte à rebours, protections)
 Dockerfile           image utilisée sur ZimaOS
 polices/             Inter (SIL Open Font License) et DejaVu Sans Mono
 ```
