@@ -161,7 +161,7 @@ travail() {
   wipefs -af "$d" >/dev/null 2>&1
 
   if [[ "$MODE" == "complet" ]]; then
-    dd if=/dev/zero of="$d" bs=4M oflag=direct status=none 2>/dev/null &
+    dd if=/dev/zero of="$d" bs=64M oflag=direct status=none 2>/dev/null &
     local pid=$! pos=0 avant=0 vitesse eta
     while kill -0 "$pid" 2>/dev/null; do
       sleep 3
