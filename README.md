@@ -17,7 +17,9 @@
 |---|---|
 | 🩺 **Santé des disques** | Anneau de vie (vert → jaune → rouge), état SMART, température, heures d'utilisation. Pour les disques durs, nombre de secteurs défectueux. |
 | 💾 **Stockage** | Système de fichiers, nom du volume, espace libre / utilisé. |
-| 🧹 **Effacement** | Tous les disques SATA, USB et NVMe en même temps, avec %, vitesse, temps restant et Go à effacer. |
+| 🧹 **Effacement** | Tous les disques SATA, USB et NVMe en même temps : chaque bloc réécrit à zéro, avec %, vitesse, **heure de fin prévue** et Go restants. |
+| ✓ **Vérification** | Après la réécriture, 66 zones réparties sur tout le disque sont relues : le badge **✓ VÉRIFIÉ** n'apparaît que si tout est à zéro. |
+| 🏷️ **Identification** | **N° de série** de chaque disque et **vitesse du branchement**, avec alerte si un disque est sur un port lent (USB 2, SATA limité). |
 | ⚡ **Automatique** | Branche un disque : compte à rebours de 30 s à l'écran, puis effacement. Débranche pour annuler. |
 | 🛡️ **Protections** | Ne touche jamais la mémoire interne (eMMC), le disque système ni le disque qui contient Docker / les applis CasaOS. |
 | 🖥️ **Écran HDMI** | S'affiche tout seul au démarrage, sans clavier ni souris. |

@@ -320,18 +320,58 @@ def lire_smart(path):
 def lire_statut(nom):
     p = os.path.join(STATUS_DIR, nom)
     if not os.path.isfile(p):
-        return {"has": False, "pct": 0, "msg": "", "reste": None}
+        return {"has": False, "pct": 0, "msg": "", "reste": None, "fin": None}
     try:
         parts = open(p, encoding="utf-8").read().strip().split("|")
     except OSError:
-        return {"has": False, "pct": 0, "msg": "", "reste": None}
-    parts += ["", "", ""]
+        return {"has": False, "pct": 0, "msg": "", "reste": None, "fin": None}
+    parts += ["", "", "", ""]
     pct = int(parts[0]) if parts[0].lstrip("-").isdigit() else 0
     reste = int(parts[2]) if parts[2].isdigit() else None
-    return {"has": True, "pct": pct, "msg": parts[1], "reste": reste}
+    fin = int(parts[3]) if parts[3].isdigit() else None
+    return {"has": True, "pct": pct, "msg": parts[1], "reste": reste, "fin": fin}
+
+def lire(chemin):
+    try:
+        return open(chemin).read().strip()
+    except OSError:
+        return ""
+
+def vitesse_lien(nom, tran):
+    """Vitesse réelle du branchement : (texte, lent ?)."""
+    dev = os.path.realpath(f"/sys/block/{nom}/device")
+    if tran == "usb":
+        p = dev
+        while p and p != "/":
+            v = lire(os.path.join(p, "speed"))
+            if v.replace(".", "").isdigit() and os.path.isfile(os.path.join(p, "idVendor")):
+                mbps = float(v)
+                if mbps >= 10000:
+                    return "USB 3.1 · 10 Gb/s", False
+                if mbps >= 5000:
+                    return "USB 3 · 5 Gb/s", False
+                if mbps >= 480:
+                    return "USB 2 · LENT", True
+                return "USB 1 · TRÈS LENT", True
+            p = os.path.dirname(p)
+        return "", False
+    if tran == "sata":
+        m = re.search(r"/ata(\d+)/", dev)
+        if m:
+            v = lire(f"/sys/class/ata_link/link{m.group(1)}/sata_spd")
+            if v.startswith("6"):
+                return "6 Gb/s", False
+            if v.startswith("3"):
+                return "SATA 3 Gb/s · LIMITÉ", True
+            if v.startswith("1.5"):
+                return "SATA 1,5 Gb/s · LENT", True
+        return "", False
+    if tran == "nvme":
+        return "NVMe", False
+    return "", False
 
 def collecter():
-    out = run(["lsblk", "-J", "-b", "-o", "NAME,PATH,TYPE,TRAN,SIZE,MODEL,FSTYPE,LABEL,FSAVAIL,FSSIZE,MOUNTPOINT"])
+    out = run(["lsblk", "-J", "-b", "-o", "NAME,PATH,TYPE,TRAN,SIZE,MODEL,SERIAL,FSTYPE,LABEL,FSAVAIL,FSSIZE,MOUNTPOINT"])
     try:
         devs = json.loads(out or "{}").get("blockdevices", [])
     except ValueError:
@@ -350,7 +390,9 @@ def collecter():
         info = {"path": path, "nom": path.split("/")[-1], "tran": tran.upper(), "taille": int(d.get("size") or 0),
                 "modele": (d.get("model") or "Disque").strip(), "fs": fs.get("fstype") or "", "label": fs.get("label") or "",
                 "libre": int(mnt["fsavail"]) if mnt.get("fsavail") else None,
-                "total": int(mnt["fssize"]) if mnt.get("fssize") else None}
+                "total": int(mnt["fssize"]) if mnt.get("fssize") else None,
+                "serie": (d.get("serial") or "").strip()}
+        info["lien"], info["lent"] = vitesse_lien(info["nom"], tran)
         info.update(lire_smart(path))
         info.update(lire_statut(info["nom"]))
         disques.append(info)
@@ -398,9 +440,13 @@ def donnees_demo(n):
         dict(path="/dev/sdd", nom="sdd", tran="USB", taille=240057409536, modele="Kingston A400 240GB",
              etat="BON", vie=88, secteurs=None, temp=36, heures=4120),
     ]
-    vide = dict(fs="", label="", libre=None, total=None, has=False, pct=0, msg="", reste=None)
-    for d in base:
+    vide = dict(fs="", label="", libre=None, total=None, has=False, pct=0, msg="", reste=None, fin=None)
+    series = ["S6PNNF0R812345K", "2048E2A1B3C4", "WD-WX12A34B5678", "50026B7784C1D2E3"]
+    liens = [("6 Gb/s", False), ("6 Gb/s", False), ("USB 2 · LENT", True), ("USB 3 · 5 Gb/s", False)]
+    for d, sn, (l, lent) in zip(base, series, liens):
         d.update(vide)
+        d.update(serie=sn, lien=l, lent=lent)
+    maintenant = int(time.time())
     if n == 1:
         base[0].update(fs="ext4", label="DONNEES", libre=612400000000, total=983900000000)
         base[1].update(fs="ntfs", label="BACKUP")
@@ -414,15 +460,17 @@ def donnees_demo(n):
         base[3].update(has=True, pct=100, msg="Déjà effacé · « ZDS-EFFACE »", reste=0, fs="ext4", label="ZDS-EFFACE")
         return base
     if n == 2:
-        base[0].update(has=True, pct=62, msg="Écriture de zéros · 412 Mo/s · 15 min restantes", reste=395000000000)
-        base[1].update(has=True, pct=87, msg="Écriture de zéros · 395 Mo/s · 3 min restantes", reste=67000000000)
-        base[2].update(has=True, pct=23, msg="Écriture de zéros · 162 Mo/s · 2h38 restantes", reste=1597000000000)
-        base[3].update(has=True, pct=100, msg="Terminé · ext4 « DISQUE4 »", reste=0, fs="ext4", label="DISQUE4")
+        base[0].update(has=True, pct=62, msg="Écriture de zéros · 412 Mo/s · 15 min restantes", reste=395000000000,
+                       fin=maintenant + 16 * 60)
+        base[1].update(has=True, pct=89, msg="Vérification · échantillon 41 / 66", reste=40000000000)
+        base[2].update(has=True, pct=23, msg="Écriture de zéros · 31 Mo/s · 14h20 restantes", reste=1597000000000,
+                       fin=maintenant + 14 * 3600 + 21 * 60)
+        base[3].update(has=True, pct=100, msg="Terminé · ext4 « ZDS-EFFACE » · vérifié", reste=0, fs="ext4", label="ZDS-EFFACE")
         return base
-    base[0].update(has=True, pct=100, msg="Terminé · ext4 « DISQUE1 »", reste=0, fs="ext4", label="DISQUE1")
-    base[1].update(has=True, pct=100, msg="Terminé · ext4 « DISQUE2 »", reste=0, fs="ext4", label="DISQUE2")
+    base[0].update(has=True, pct=100, msg="Terminé · ext4 « ZDS-EFFACE » · vérifié", reste=0, fs="ext4", label="ZDS-EFFACE")
+    base[1].update(has=True, pct=100, msg="Terminé · ext4 « ZDS-EFFACE » · vérifié", reste=0, fs="ext4", label="ZDS-EFFACE")
     base[2].update(etat="DANGER", secteurs=148, temp=57, has=True, pct=45,
-                   msg="Écriture de zéros · 118 Mo/s · 2h41 restantes", reste=1100000000000)
+                   msg="Écriture de zéros · 118 Mo/s · 2h41 restantes", reste=1100000000000, fin=maintenant + 2 * 3600 + 42 * 60)
     return base[:3]
 
 # ------------------------------------------------------------------ réglage du mode automatique
@@ -490,12 +538,19 @@ def dessiner_carte(img, x, y, w, h, d, s):
     cx = X0
     cx += puce(img, cx, fy, d["nom"].upper(), F("bold", 15 * s), TXT, (255, 255, 255, 22), h=ch) + int(8 * s)
     cx += puce(img, cx, fy, d["tran"], F("semi", 14 * s), TXT2, (255, 255, 255, 10), h=ch) + int(8 * s)
-    puce(img, cx, fy, hum(d["taille"]), F("semi", 14 * s), YELLOW, YELLOW + (26,), h=ch)
+    cx += puce(img, cx, fy, hum(d["taille"]), F("semi", 14 * s), YELLOW, YELLOW + (26,), h=ch) + int(8 * s)
+    if d.get("lien"):
+        if d.get("lent"):
+            puce(img, cx, fy, "⚠ " + d["lien"], F("bold", 13 * s), ORANGE, ORANGE + (34,), h=ch)
+        else:
+            puce(img, cx, fy, d["lien"], F("semi", 13 * s), TXT3, (255, 255, 255, 8), h=ch)
     puce(img, X1, fy, badge, F("bold", 14 * s), coul, coul + (34,), h=ch, point=coul, droite=True)
 
     # --- modèle + sous-titre
     dr.text((X0, y + int(62 * s)), tronquer(d["modele"], F("semi", 28 * s), X1 - X0), font=F("semi", 28 * s), fill=TXT, anchor="la")
     sous = d["path"]
+    if d.get("serie"):
+        sous += f"   ·   N° de série {d['serie']}"
     if d.get("heures") is not None:
         sous += f"   ·   {milliers(d['heures'])} h d'utilisation"
     dr.text((X0, y + int(96 * s)), tronquer(sous, F("reg", 17 * s), X1 - X0), font=F("reg", 17 * s), fill=TXT3, anchor="la")
@@ -574,6 +629,12 @@ def dessiner_carte(img, x, y, w, h, d, s):
         return
     if st == "cours" or (st in ("danger", "erreur") and d["has"] and d["pct"] < 100 and not d["msg"].startswith(("ERREUR", "PROTÉGÉ"))):
         etape = morceaux[0]
+        if d.get("fin"):
+            fin_t = datetime.datetime.fromtimestamp(d["fin"])
+            morceaux = [m.replace(" restantes", "") for m in morceaux]
+            jours = (fin_t.date() - datetime.date.today()).days
+            quand = "" if jours <= 0 else ("demain " if jours == 1 else f"le {fin_t.day} {MOIS[fin_t.month - 1]} ")
+            morceaux.append(f"fin {quand or 'vers '}{fin_t.hour} h {fin_t.minute:02d}")
         details = "  ·  ".join(morceaux[1:])
         if d.get("reste"):
             details += ("  ·  " if details else "") + f"reste {hum(d['reste'])}"
@@ -586,8 +647,12 @@ def dessiner_carte(img, x, y, w, h, d, s):
         img.alpha_composite(barre(X1 - X0, int(12 * s), d["pct"] / 100, CYAN, VIOLET), (X0, by))
     elif st == "fini" or (d["has"] and d["pct"] >= 100):
         dr.text((X1, ty + 16 * s), "100 %", font=F("dbold", 34 * s), fill=GREEN, anchor="rm")
-        dr.text((X0, ty), "DÉJÀ EFFACÉ PAR LA STATION" if d["msg"].startswith("Déjà") else "EFFACÉ ET FORMATÉ",
-                font=F("bold", 13 * s), fill=GREEN, anchor="la")
+        verifie = "vérifié" in d["msg"]
+        titre = "DÉJÀ EFFACÉ PAR LA STATION" if d["msg"].startswith("Déjà") else "EFFACÉ ET FORMATÉ"
+        dr.text((X0, ty), titre, font=F("bold", 13 * s), fill=GREEN, anchor="la")
+        if verifie:
+            puce(img, X0 + F("bold", 13 * s).getlength(titre) + 10 * s, ty - 4 * s, "✓ VÉRIFIÉ",
+                 F("bold", 11 * s), (10, 40, 22), GREEN + (230,), h=int(20 * s))
         fin = (morceaux[1] if len(morceaux) > 1 else "") + "  ·  prêt à débrancher"
         dr.text((X0, ty + 18 * s), fin.strip(" ·"), font=F("med", 16 * s), fill=TXT2, anchor="la")
         img.alpha_composite(barre(X1 - X0, int(12 * s), 1.0, GREEN, LIME), (X0, by))

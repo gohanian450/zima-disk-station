@@ -149,7 +149,8 @@ travail() {
   local d=$1 nom st taille part
   nom=$(basename "$d"); st="$STATUS_DIR/$nom"
   taille=$(blockdev --getsize64 "$d")
-  etat() { echo "$1|$2|${3:-}" > "$st"; }   # pourcent | message | octets restants
+  etat() { echo "$1|$2|${3:-}|${4:-}" > "$st"; }   # pourcent | message | octets restants | heure de fin (epoch)
+  local verifie=""
 
   etat 2 "Démontage des partitions" "$taille"
   for p in $(lsblk -lnpo NAME "$d" | tail -n +2); do
@@ -168,12 +169,30 @@ travail() {
       pos=$(awk '/^pos:/{print $2}' "/proc/$pid/fdinfo/1" 2>/dev/null || echo "$pos")
       vitesse=$(( (pos - avant) / 3 )); avant=$pos
       if (( vitesse > 0 )); then
-        eta=$(duree $(( (taille - pos) / vitesse )))
-        etat $(( 5 + pos * 85 / taille )) "Écriture de zéros · $(( vitesse / 1000000 )) Mo/s · ${eta} restantes" $(( taille - pos ))
+        local reste_s=$(( (taille - pos) / vitesse ))
+        eta=$(duree "$reste_s")
+        etat $(( 5 + pos * 83 / taille )) "Écriture de zéros · $(( vitesse / 1000000 )) Mo/s · ${eta} restantes" \
+             $(( taille - pos )) $(( $(date +%s) + reste_s + 60 ))
       fi
     done
     wait "$pid" 2>/dev/null || true      # dd finit toujours par « disque plein » : normal
-    etat 90 "Réécriture terminée · nettoyage TRIM" "$(( taille * 10 / 100 ))"
+
+    # Vérification : relit le début, la fin et 64 endroits au hasard ; tout doit être à zéro
+    local mio=$(( taille / 1048576 )) n=0 total=66 off mauvais=0
+    for off in 0 $(( mio > 1 ? mio - 1 : 0 )) $(for _ in $(seq 64); do echo $(( (RANDOM * 32768 + RANDOM) % (mio > 0 ? mio : 1) )); done); do
+      n=$((n + 1))
+      etat $(( 88 + n * 3 / total )) "Vérification · échantillon $n / $total" "$(( taille * 8 / 100 ))"
+      if [[ $(dd if="$d" bs=1M skip="$off" count=1 iflag=direct status=none 2>/dev/null | tr -d '\0' | head -c1 | wc -c) -ne 0 ]]; then
+        mauvais=$((mauvais + 1))
+      fi
+    done
+    if (( mauvais > 0 )); then
+      etat 0 "ERREUR : vérification échouée · $mauvais zone(s) non effacée(s)"
+      return 1
+    fi
+    verifie=" · vérifié"
+
+    etat 91 "Réécriture vérifiée · nettoyage TRIM" "$(( taille * 9 / 100 ))"
     blkdiscard "$d" 2>/dev/null || true  # SSD : libère les cellules (sans effet sur un HDD)
   else
     etat 30 "Effacement TRIM (SSD)" "$(( taille * 70 / 100 ))"
@@ -203,7 +222,7 @@ travail() {
     ntfs)  mkfs.ntfs -f -Q -L "$ETIQUETTE" "$part" >/dev/null ;;
   esac || { etat 0 "ERREUR pendant le formatage $FS"; return 1; }
 
-  etat 100 "Terminé · $FS « $ETIQUETTE »" 0
+  etat 100 "Terminé · $FS « $ETIQUETTE »$verifie" 0
 }
 
 for d in "${CIBLES[@]}"; do
