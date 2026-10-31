@@ -51,7 +51,15 @@ cd /DATA/zima-disk-station && sudo chmod +x *.sh *.py && sudo ./installer.sh
 sudo /DATA/zima-disk-station/mettre-a-jour.sh
 ```
 
-Récupère la dernière version sur GitHub et redémarre l'écran.
+Récupère la dernière version sur GitHub, redémarre l'écran et affiche une vérification ✅ / ❌.
+
+## ✅ Vérifier que tout est en ordre
+
+```bash
+sudo /DATA/zima-disk-station/verifier.sh
+```
+
+Contrôle la version, les fichiers installés, le démarrage automatique, l'écran détecté et les outils.
 
 ---
 
@@ -95,7 +103,8 @@ sudo /DATA/zima-disk-station/installer.sh --desinstaller
 installer.sh         installe le service (ou le conteneur Docker) qui affiche l'écran
 ecran-disques.py     tableau de bord graphique dessiné sur /dev/fb0
 effacer-disques.sh   effacement + formatage, avec progression publiée dans /run/effacement
-mettre-a-jour.sh     git pull + réinstallation
+mettre-a-jour.sh     git pull + réinstallation + vérification
+verifier.sh          liste de contrôle ✅ / ❌
 Dockerfile           image utilisée sur ZimaOS
 polices/             Inter (SIL Open Font License) et DejaVu Sans Mono
 ```

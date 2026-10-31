@@ -23,3 +23,6 @@ else
 fi
 chmod +x ./*.sh ./*.py
 ./installer.sh
+
+# contrôle final
+./verifier.sh
