@@ -1,0 +1,7 @@
+# Fins de ligne Linux, même si le dépôt passe par Windows
+*.sh        text eol=lf
+*.py        text eol=lf
+Dockerfile  text eol=lf
+*.md        text eol=lf
+*.ttf       binary
+*.png       binary
